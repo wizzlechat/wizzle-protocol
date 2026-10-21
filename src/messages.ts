@@ -13,9 +13,13 @@ export type Capabilities = {
   abort: boolean;
   createAgent: boolean;
   topics: boolean;
+  templates: boolean;
+  // Pause, resume and restart; delete is its own flag because it is destructive.
+  lifecycle: boolean;
+  deleteAgent: boolean;
 };
 
-export type AgentStatus = 'idle' | 'running' | 'waiting' | 'offline' | 'error';
+export type AgentStatus = 'idle' | 'running' | 'waiting' | 'offline' | 'error' | 'paused';
 export type Agent = { id: string; name: string; description?: string; status: AgentStatus; model?: string };
 export type Conversation = { id: string; agentId: string; title: string; lastAt?: number; topic?: boolean; createdAt?: number };
 export type TextFormat = 'text' | 'markdown';
@@ -55,6 +59,17 @@ export type Task = {
   nextRunAt?: number;
 };
 export type FileMeta = { name: string; mime: string; size: number };
+// One agent plugin the host can stamp a new agent from.
+export type TemplateInfo = {
+  ref: string;
+  name: string;
+  agentName?: string;
+  description?: string;
+  version?: string;
+  tasks: number;
+  mcpServers: number;
+  skills: number;
+};
 export type SessionEvent = 'cleared' | 'compacted' | 'reset' | 'error';
 
 // Bridge to phone. 'file' carries its bytes in the packet body.
@@ -80,6 +95,8 @@ export type BridgeMessage =
   | { t: 'task_run'; taskId: string; runId: string; status: 'started' | TaskStatus; at: number; summary?: string }
   | { t: 'session'; conv: string; event: SessionEvent; detail?: string }
   | { t: 'history'; conv: string; messages: ChatMessage[]; before?: string; hasMore: boolean }
+  | { t: 'templates'; templates: TemplateInfo[] }
+  | { t: 'agent_deleted'; agentId: string }
   | { t: 'error'; ref?: string; code: string; message: string };
 
 // Phone to bridge. 'upload' carries its bytes in the packet body.
@@ -93,10 +110,23 @@ export type PhoneMessage =
   | { t: 'history'; conv: string; before?: string; limit?: number }
   | { t: 'tasks' }
   | { t: 'run_task'; taskId: string }
-  | { t: 'create_agent'; name: string; description?: string }
+  | {
+      t: 'create_agent';
+      name: string;
+      description?: string;
+      purpose?: string;
+      template?: string;
+      copyFrom?: string;
+      timezone?: string;
+    }
+  | { t: 'templates' }
   | { t: 'create_conversation'; agentId: string; title: string }
   | { t: 'rename_conversation'; conv: string; title: string }
   | { t: 'delete_conversation'; conv: string }
+  | { t: 'pause_agent'; agentId: string }
+  | { t: 'resume_agent'; agentId: string }
+  | { t: 'restart_agent'; agentId: string; message?: string }
+  | { t: 'delete_agent'; agentId: string; removeWorkspace: boolean }
   | { t: 'sync' };
 
 export type Packet<M> = M & { id: string };
