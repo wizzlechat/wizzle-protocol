@@ -1,14 +1,17 @@
 import type { CryptoProvider, KeyPair } from './crypto.ts';
-import { NONCE_BYTES, X25519_BYTES } from './crypto.ts';
+import { NONCE_BYTES, X25519_BYTES, dh } from './crypto.ts';
 import { concat, equal, fromB64Url, toB64Url, utf8, writeU64 } from './bytes.ts';
 import type { Frame, Role } from './envelope.ts';
 import { EPOCH_BYTES, FRAME_ACK, FRAME_DATA, FRAME_HS, ZERO_EPOCH, encodeFrame, frameHeader } from './envelope.ts';
 
-const LABEL = utf8('wizzle-v1');
-const INFO_P2B = utf8('wizzle-v1 p2b');
-const INFO_B2P = utf8('wizzle-v1 b2p');
+const LABEL = utf8('wizzle-v2');
+const INFO_P2B = utf8('wizzle-v2 p2b');
+const INFO_B2P = utf8('wizzle-v2 b2p');
 const MAX_EPOCHS = 2;
 const MAX_SEQ = 1n << 62n;
+
+// psk from the invite, this side's static key, and the peer's static key (null on a bridge until a phone pairs).
+export type SessionKeys = { psk: Uint8Array; own: KeyPair; peer: Uint8Array | null };
 
 type Epoch = {
   id: Uint8Array;
@@ -16,9 +19,10 @@ type Epoch = {
   recvKey: Uint8Array;
   sendSeq: bigint;
   recvSeq: bigint;
+  peer: Uint8Array | null;
 };
 
-export type EpochState = { id: string; sendKey: string; recvKey: string; sendSeq: string; recvSeq: string };
+export type EpochState = { id: string; sendKey: string; recvKey: string; sendSeq: string; recvSeq: string; peer?: string };
 export type SessionState = { epochs: EpochState[]; send: string | null };
 
 export type OpenResult =
@@ -34,28 +38,27 @@ function nonceFor(seq: bigint): Uint8Array {
   return nonce;
 }
 
-function isZero(b: Uint8Array): boolean {
-  let acc = 0;
-  for (const x of b) acc |= x;
-  return acc === 0;
-}
-
 // One pairing's end to end state: handshakes, epochs, and frame sealing.
 export class Session {
   readonly role: Role;
   private readonly crypto: CryptoProvider;
   private readonly pairingId: Uint8Array;
   private readonly psk: Uint8Array;
+  private readonly own: KeyPair;
+  private peer: Uint8Array | null;
   private epochs: Epoch[] = [];
   private sendEpoch: Epoch | null = null;
   private pending: KeyPair | null = null;
   private lastRecv: { id: Uint8Array; seq: bigint } | null = null;
 
-  constructor(crypto: CryptoProvider, role: Role, pairingId: Uint8Array, psk: Uint8Array, state?: SessionState) {
+  constructor(crypto: CryptoProvider, role: Role, pairingId: Uint8Array, keys: SessionKeys, state?: SessionState) {
+    if (role === 'phone' && !keys.peer) throw new Error('the phone needs the bridge key');
     this.crypto = crypto;
     this.role = role;
     this.pairingId = pairingId;
-    this.psk = psk;
+    this.psk = keys.psk;
+    this.own = keys.own;
+    this.peer = keys.peer;
     if (state) this.importState(state);
   }
 
@@ -67,26 +70,39 @@ export class Session {
     return this.sendEpoch ? this.sendEpoch.id : null;
   }
 
-  // Phone side. Returns the HS frame to send through the relay.
+  // The bridge key on a phone; on a bridge, the phone key pinned by the first confirmed handshake.
+  get peerKey(): Uint8Array | null {
+    return this.peer;
+  }
+
+  // Phone side. Returns the HS frame to send through the relay: ephemeral key then static key.
   beginHandshake(): Uint8Array {
     if (this.role !== 'phone') throw new Error('only the phone starts a handshake');
     this.pending = this.crypto.x25519KeyPair();
-    return encodeFrame({ type: FRAME_HS, epoch: ZERO_EPOCH, seq: 0n, payload: this.pending.publicKey });
+    return encodeFrame({ type: FRAME_HS, epoch: ZERO_EPOCH, seq: 0n, payload: concat(this.pending.publicKey, this.own.publicKey) });
   }
 
   // Both sides. Returns the frame to send back, or null if nothing should be sent.
   handleHandshake(frame: Frame): Uint8Array | null {
-    if (frame.type !== FRAME_HS || frame.payload.length !== X25519_BYTES) throw new Error('bad handshake frame');
-    const theirPub = frame.payload;
+    if (frame.type !== FRAME_HS) throw new Error('bad handshake frame');
     if (this.role === 'bridge') {
+      if (frame.payload.length !== 2 * X25519_BYTES) throw new Error('bad handshake frame');
+      const phoneEph = frame.payload.slice(0, X25519_BYTES);
+      const phoneStatic = frame.payload.slice(X25519_BYTES);
+      if (this.peer && !equal(this.peer, phoneStatic)) throw new Error('unknown phone key');
       const mine = this.crypto.x25519KeyPair();
-      this.derive(theirPub, mine.publicKey, mine.privateKey, theirPub);
+      const ikm = concat(dh(this.crypto, mine.privateKey, phoneEph), dh(this.crypto, mine.privateKey, phoneStatic), dh(this.crypto, this.own.privateKey, phoneEph));
+      this.derive(ikm, this.own.publicKey, phoneStatic, phoneEph, mine.publicKey);
       return encodeFrame({ type: FRAME_HS, epoch: ZERO_EPOCH, seq: 0n, payload: mine.publicKey });
     }
+    if (frame.payload.length !== X25519_BYTES) throw new Error('bad handshake frame');
     if (!this.pending) return null;
     const mine = this.pending;
     this.pending = null;
-    const epoch = this.derive(mine.publicKey, theirPub, mine.privateKey, theirPub);
+    const bridgeEph = frame.payload.slice();
+    const bridgeStatic = this.peer as Uint8Array;
+    const ikm = concat(dh(this.crypto, mine.privateKey, bridgeEph), dh(this.crypto, this.own.privateKey, bridgeEph), dh(this.crypto, mine.privateKey, bridgeStatic));
+    const epoch = this.derive(ikm, bridgeStatic, this.own.publicKey, mine.publicKey, bridgeEph);
     if (!epoch) return null;
     return this.sealWith(epoch, new Uint8Array(0));
   }
@@ -107,6 +123,7 @@ export class Session {
     epoch.recvSeq = frame.seq;
     this.lastRecv = { id: epoch.id, seq: frame.seq };
     this.promote(epoch);
+    if (this.role === 'bridge' && !this.peer && epoch.peer) this.pin(epoch);
     if (plaintext.length === 0) {
       const reply = this.role === 'bridge' ? this.sealWith(epoch, new Uint8Array(0)) : null;
       return { kind: 'confirm', reply };
@@ -122,13 +139,17 @@ export class Session {
 
   exportState(): SessionState {
     return {
-      epochs: this.epochs.map((e) => ({
-        id: toB64Url(e.id),
-        sendKey: toB64Url(e.sendKey),
-        recvKey: toB64Url(e.recvKey),
-        sendSeq: e.sendSeq.toString(),
-        recvSeq: e.recvSeq.toString(),
-      })),
+      epochs: this.epochs.map((e) => {
+        const out: EpochState = {
+          id: toB64Url(e.id),
+          sendKey: toB64Url(e.sendKey),
+          recvKey: toB64Url(e.recvKey),
+          sendSeq: e.sendSeq.toString(),
+          recvSeq: e.recvSeq.toString(),
+        };
+        if (e.peer) out.peer = toB64Url(e.peer);
+        return out;
+      }),
       send: this.sendEpoch ? toB64Url(this.sendEpoch.id) : null,
     };
   }
@@ -140,27 +161,29 @@ export class Session {
       recvKey: fromB64Url(e.recvKey),
       sendSeq: BigInt(e.sendSeq),
       recvSeq: BigInt(e.recvSeq),
+      peer: e.peer ? fromB64Url(e.peer) : null,
     }));
     for (const e of this.epochs) {
       if (e.id.length !== EPOCH_BYTES || e.sendKey.length !== 32 || e.recvKey.length !== 32) throw new Error('bad session state');
+      if (e.peer && e.peer.length !== X25519_BYTES) throw new Error('bad session state');
     }
+    if (this.role === 'bridge' && this.peer) this.dropForeign(null);
     this.sendEpoch = state.send ? (this.epochs.find((e) => toB64Url(e.id) === state.send) ?? null) : null;
   }
 
-  private derive(phonePub: Uint8Array, bridgePub: Uint8Array, myPriv: Uint8Array, theirPub: Uint8Array): Epoch | null {
-    const shared = this.crypto.x25519(myPriv, theirPub);
-    if (isZero(shared)) throw new Error('low order peer key');
-    const transcript = concat(LABEL, this.pairingId, phonePub, bridgePub);
+  private derive(ikm: Uint8Array, bridgeStatic: Uint8Array, phoneStatic: Uint8Array, phoneEph: Uint8Array, bridgeEph: Uint8Array): Epoch | null {
+    const transcript = concat(LABEL, this.pairingId, bridgeStatic, phoneStatic, phoneEph, bridgeEph);
     const id = this.crypto.sha256(transcript).subarray(0, EPOCH_BYTES);
     if (this.epochs.some((e) => equal(e.id, id))) return null;
-    const p2b = this.crypto.hkdfSha256(shared, this.psk, concat(INFO_P2B, transcript), 32);
-    const b2p = this.crypto.hkdfSha256(shared, this.psk, concat(INFO_B2P, transcript), 32);
+    const p2b = this.crypto.hkdfSha256(ikm, this.psk, concat(INFO_P2B, transcript), 32);
+    const b2p = this.crypto.hkdfSha256(ikm, this.psk, concat(INFO_B2P, transcript), 32);
     const epoch: Epoch = {
       id,
       sendKey: this.role === 'phone' ? p2b : b2p,
       recvKey: this.role === 'phone' ? b2p : p2b,
       sendSeq: 0n,
       recvSeq: 0n,
+      peer: this.role === 'bridge' ? phoneStatic : null,
     };
     this.epochs.push(epoch);
     while (this.epochs.length > MAX_EPOCHS) {
@@ -175,6 +198,18 @@ export class Session {
   private promote(epoch: Epoch): void {
     const current = this.sendEpoch ? this.epochs.indexOf(this.sendEpoch) : -1;
     if (this.epochs.indexOf(epoch) > current) this.sendEpoch = epoch;
+  }
+
+  // The first phone to confirm owns the pairing; epochs other phones derived before that are dropped.
+  private pin(epoch: Epoch): void {
+    this.peer = epoch.peer;
+    this.dropForeign(epoch);
+  }
+
+  private dropForeign(keep: Epoch | null): void {
+    const peer = this.peer as Uint8Array;
+    this.epochs = this.epochs.filter((e) => !e.peer || equal(e.peer, peer));
+    if (this.sendEpoch && !this.epochs.includes(this.sendEpoch)) this.sendEpoch = keep;
   }
 
   private sealWith(epoch: Epoch, plaintext: Uint8Array): Uint8Array {

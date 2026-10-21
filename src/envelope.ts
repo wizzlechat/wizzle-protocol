@@ -52,16 +52,18 @@ export type Role = 'phone' | 'bridge';
 export type PushPlatform = 'ios' | 'android';
 
 export type ClientControl =
-  | { t: 'hello'; v: 1; pairing: string; role: Role; secret: string }
+  | { t: 'hello'; v: 2; pairing: string; role: Role; secret: string }
   | { t: 'push'; platform: PushPlatform; token: string }
-  | { t: 'revoke' };
+  | { t: 'rekey'; secret: string }
+  | { t: 'revoke' }
+  | { t: 'wake' };
 
 export type RelayControl =
   | { t: 'welcome'; peer: boolean; buffered: number; maxFrameBytes: number }
   | { t: 'peer'; online: boolean }
   | { t: 'error'; code: 'auth' | 'limit' | 'frame' | 'proto' | 'revoked'; message: string };
 
-export const RELAY_PROTOCOL_VERSION = 1;
+export const RELAY_PROTOCOL_VERSION = 2;
 
 export function encodeControl(msg: ClientControl | RelayControl): string {
   return JSON.stringify(msg);

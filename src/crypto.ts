@@ -15,3 +15,13 @@ export const KEY_BYTES = 32;
 export const NONCE_BYTES = 12;
 export const TAG_BYTES = 16;
 export const X25519_BYTES = 32;
+
+// X25519 that refuses an all zero result, which only a low order peer key produces.
+export function dh(crypto: CryptoProvider, privateKey: Uint8Array, peerPublicKey: Uint8Array): Uint8Array {
+  if (peerPublicKey.length !== X25519_BYTES) throw new Error('bad peer key');
+  const shared = crypto.x25519(privateKey, peerPublicKey);
+  let acc = 0;
+  for (const x of shared) acc |= x;
+  if (acc === 0) throw new Error('low order peer key');
+  return shared;
+}

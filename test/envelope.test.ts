@@ -35,6 +35,7 @@ test('frame rejects bad input', () => {
 test('control messages round trip', () => {
   const text = encodeControl({ t: 'peer', online: true });
   assert.deepEqual(decodeControl(text), { t: 'peer', online: true });
+  assert.deepEqual(decodeControl(encodeControl({ t: 'wake' })), { t: 'wake' });
   assert.throws(() => decodeControl('[]'));
   assert.throws(() => decodeControl('{"x":1}'));
 });
