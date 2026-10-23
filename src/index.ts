@@ -4,3 +4,4 @@ export * from './envelope.ts';
 export * from './pairing.ts';
 export * from './messages.ts';
 export * from './session.ts';
+export * from './element.ts';
