@@ -17,11 +17,14 @@ export type Capabilities = {
   // Pause, resume and restart; delete is its own flag because it is destructive.
   lifecycle: boolean;
   deleteAgent: boolean;
+  // The host's credential vault: list, create, update and delete keys, and attach them to agents.
+  keys: boolean;
 };
 
 export type AgentStatus = 'idle' | 'running' | 'waiting' | 'offline' | 'error' | 'paused';
 export type Agent = { id: string; name: string; description?: string; status: AgentStatus; model?: string };
-export type Conversation = { id: string; agentId: string; title: string; lastAt?: number; topic?: boolean; createdAt?: number };
+// lastAgentAt is the newest agent message in the conversation's latest history page.
+export type Conversation = { id: string; agentId: string; title: string; lastAt?: number; topic?: boolean; createdAt?: number; lastAgentAt?: number };
 export type TextFormat = 'text' | 'markdown';
 export type ChatRole = 'agent' | 'user' | 'system';
 export type ChatMessage = { conv: string; msgId: string; role: ChatRole; text: string; format: TextFormat; at: number };
@@ -59,16 +62,45 @@ export type Task = {
   nextRunAt?: number;
 };
 export type FileMeta = { name: string; mime: string; size: number };
-// One agent plugin the host can stamp a new agent from.
+// One agent plugin the host can stamp a new agent from. Counts are known once a copy is on the host.
 export type TemplateInfo = {
   ref: string;
   name: string;
   agentName?: string;
   description?: string;
   version?: string;
-  tasks: number;
-  mcpServers: number;
-  skills: number;
+  tasks?: number;
+  mcpServers?: number;
+  skills?: number;
+  // Set on the public library's templates; downloaded once a copy is on the host.
+  category?: string;
+  downloaded?: boolean;
+};
+export type SecretType = 'generic' | 'anthropic' | 'openai';
+// Where the gateway puts a generic key in a matching request; `{value}` marks the key.
+export type SecretInjection =
+  | { headerName: string; valueFormat?: string }
+  | { paramName: string; paramFormat?: string }
+  | { pathTemplate: string }
+  | { pathRegex: string; pathReplacement: string };
+// A vault key as the phone sees it. Its value never leaves the host.
+export type Secret = {
+  id: string;
+  name: string;
+  type: SecretType;
+  host: string;
+  path?: string;
+  injection?: SecretInjection;
+  createdAt?: number;
+};
+export type SecretInput = { name: string; type: SecretType; host: string; path?: string; injection?: SecretInjection; value: string };
+// Only the fields present change; a null path or injection clears it, and the type is fixed.
+export type SecretChanges = {
+  name?: string;
+  host?: string;
+  path?: string | null;
+  injection?: SecretInjection | null;
+  value?: string;
 };
 export type SessionEvent = 'cleared' | 'compacted' | 'reset' | 'error';
 
@@ -97,6 +129,11 @@ export type BridgeMessage =
   | { t: 'history'; conv: string; messages: ChatMessage[]; before?: string; hasMore: boolean }
   | { t: 'templates'; templates: TemplateInfo[] }
   | { t: 'agent_deleted'; agentId: string }
+  | { t: 'secrets'; secrets: Secret[] }
+  // The key a create_secret or update_secret saved; ref is that request's id.
+  | { t: 'secret'; ref?: string; secret: Secret }
+  | { t: 'secret_deleted'; secretId: string }
+  | { t: 'agent_secrets'; agentId: string; secretIds: string[] }
   | { t: 'error'; ref?: string; code: string; message: string };
 
 // Phone to bridge. 'upload' carries its bytes in the packet body.
@@ -118,8 +155,16 @@ export type PhoneMessage =
       template?: string;
       copyFrom?: string;
       timezone?: string;
+      secrets?: string[];
     }
   | { t: 'templates' }
+  | { t: 'secrets' }
+  | { t: 'create_secret'; secret: SecretInput }
+  | { t: 'update_secret'; secretId: string; changes: SecretChanges }
+  | { t: 'delete_secret'; secretId: string }
+  | { t: 'agent_secrets'; agentId: string }
+  | { t: 'attach_secret'; agentId: string; secretId: string }
+  | { t: 'detach_secret'; agentId: string; secretId: string }
   | { t: 'create_conversation'; agentId: string; title: string }
   | { t: 'rename_conversation'; conv: string; title: string }
   | { t: 'delete_conversation'; conv: string }

@@ -100,3 +100,34 @@ test('create_agent and templates packets round trip', () => {
   };
   assert.deepEqual({ ...decodePacket(encodePacket(list)).header }, { ...list });
 });
+
+test('key packets and library templates round trip', () => {
+  const packets: Array<Packet<PhoneMessage> | Packet<BridgeMessage>> = [
+    { id: 'k1', t: 'secrets' },
+    {
+      id: 'k2',
+      t: 'create_secret',
+      secret: { name: 'GitHub', type: 'generic', host: 'api.github.com', injection: { headerName: 'Authorization', valueFormat: 'Bearer {value}' }, value: 'ghp_x' },
+    },
+    { id: 'k3', t: 'update_secret', secretId: 's1', changes: { path: null, injection: { pathTemplate: '/bot{value}' } } },
+    { id: 'k4', t: 'delete_secret', secretId: 's1' },
+    { id: 'k5', t: 'agent_secrets', agentId: 'ag-1' },
+    { id: 'k6', t: 'attach_secret', agentId: 'ag-1', secretId: 's1' },
+    { id: 'k7', t: 'detach_secret', agentId: 'ag-1', secretId: 's1' },
+    { id: 'k8', t: 'create_agent', name: 'Scout', template: 'data/analyst', secrets: ['s1', 's2'] },
+    {
+      id: 'b1',
+      t: 'secrets',
+      secrets: [
+        { id: 's1', name: 'Search', type: 'generic', host: 'www.googleapis.com', path: '/customsearch/*', injection: { paramName: 'key' }, createdAt: 1 },
+        { id: 's2', name: 'Rewrite', type: 'generic', host: 'api.example.com', injection: { pathRegex: '^/v1/(.*)$', pathReplacement: '/v1/{value}/$1' } },
+        { id: 's3', name: 'Anthropic', type: 'anthropic', host: 'api.anthropic.com' },
+      ],
+    },
+    { id: 'b2', t: 'secret', ref: 'k2', secret: { id: 's4', name: 'GitHub', type: 'generic', host: 'api.github.com' } },
+    { id: 'b3', t: 'secret_deleted', secretId: 's1' },
+    { id: 'b4', t: 'agent_secrets', agentId: 'ag-1', secretIds: ['s2'] },
+    { id: 'b5', t: 'templates', templates: [{ ref: 'data/analyst', name: 'analyst', description: 'Answers data questions', category: 'data', downloaded: false }] },
+  ];
+  for (const packet of packets) assert.deepEqual({ ...decodePacket(encodePacket(packet)).header }, { ...packet });
+});
