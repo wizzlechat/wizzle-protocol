@@ -1,6 +1,6 @@
 # wizzle-protocol
 
-Wire protocol shared by the wizzle phone app, the relay, and every bridge.
+Wire protocol shared by the wizzle app, the relay, and every bridge.
 TypeScript, zero dependencies. The relay carries its own copy of the frame
 header rules in Rust; it never sees anything below the frame layer.
 
@@ -9,7 +9,7 @@ header rules in Rust; it never sees anything below the frame layer.
 1. Relay control: text WebSocket messages between one client and the relay,
    version 2. `hello`, `push`, `rekey`, `revoke`, `wake` from the client;
    `welcome`, `peer`, `error` from the relay. Never forwarded to the peer.
-   `push` comes only from the phone, `wake` only from the bridge. See
+   `push` comes only from wizzle, `wake` only from the bridge. See
    `src/envelope.ts`.
 2. Frames: binary WebSocket messages the relay forwards untouched. Header is
    type (1 byte), epoch (8 bytes), seq (8 bytes). Types: HS (handshake), DATA,
@@ -24,7 +24,7 @@ header rules in Rust; it never sees anything below the frame layer.
 The bridge makes a static X25519 key pair for the pairing, creates an invite
 (`newInvite`) and shows it as a QR code:
 `wizzle://pair?r=<relay url>&p=<pairing id>&s=<secret>&k=<bridge static key>&e=<expiry, unix seconds>&n=<name>&rt=<runtime>`.
-The phone refuses an invite past its expiry and makes a static key pair of its
+wizzle refuses an invite past its expiry and makes a static key pair of its
 own for the pairing. Three values matter to the relay and the handshake:
 
 - invite relay secret (`deriveRelaySecret`): HKDF of the secret. Both sides send
@@ -32,36 +32,36 @@ own for the pairing. Three values matter to the relay and the handshake:
 - psk (`derivePsk`): HKDF of the secret with another label. It never leaves the
   two devices and salts every handshake.
 - paired relay secret (`derivePairedRelaySecret`): HKDF of the static to static
-  X25519 secret, salted with the pairing id. Once the bridge has pinned a phone
+  X25519 secret, salted with the pairing id. Once the bridge has pinned wizzle
   it sends this to the relay in `rekey`, and from then on only this secret
   attaches. A leaked invite holds neither static private key, so it cannot
   produce it.
 
-The first phone whose handshake the bridge confirms is pinned by its static key
-(`Session.peerKey`). The bridge refuses handshakes from any other phone key and
-drops epochs another phone derived before the pin. So an invite works once.
+The first wizzle app whose handshake the bridge confirms is pinned by its static key
+(`Session.peerKey`). The bridge refuses handshakes from any other wizzle key and
+drops epochs another wizzle app derived before the pin. So an invite works once.
 
 ## Handshake and epochs
 
-The phone always initiates. It sends an HS frame with a fresh ephemeral X25519
+wizzle always initiates. It sends an HS frame with a fresh ephemeral X25519
 key followed by its static key (64 bytes), the bridge answers with an ephemeral
 key of its own (32 bytes), and both derive an epoch:
 
-- transcript = "wizzle-v2" || pairing id || bridge static || phone static ||
-  phone ephemeral || bridge ephemeral
-- ikm = DH(phone ephemeral, bridge ephemeral) || DH(phone static, bridge
-  ephemeral) || DH(phone ephemeral, bridge static)
+- transcript = "wizzle-v2" || pairing id || bridge static || wizzle static ||
+  wizzle ephemeral || bridge ephemeral
+- ikm = DH(wizzle ephemeral, bridge ephemeral) || DH(wizzle static, bridge
+  ephemeral) || DH(wizzle ephemeral, bridge static)
 - epoch id = first 8 bytes of SHA-256(transcript)
 - send and receive keys = HKDF-SHA256(ikm, salt = psk, info = direction label
   || transcript)
 
 The ephemeral to ephemeral term gives forward secrecy. The two static terms mean
-only the holder of the phone's static key can be the phone and only the holder
+only the holder of wizzle's static key can be wizzle and only the holder
 of the bridge's static key from the invite can be the bridge, so neither the
 relay nor anyone with a copy of the invite can sit in the middle. Any DH result
 of all zeros (a low order key) is refused.
 
-The phone then sends an empty DATA frame (confirm) under the new epoch. The
+wizzle then sends an empty DATA frame (confirm) under the new epoch. The
 bridge replies with its own confirm. Each side switches to sending under the
 newest epoch once it has opened one valid frame from the peer under it.
 
@@ -86,8 +86,8 @@ the app recognizes it by the name and draws it with its own components.
   per agent, and the same id again replaces the element; `kind` is free text
   that groups elements in the app.
 - Nodes: `text` (`role` title, body or caption), `image` (https), `stack`,
-  `list`, `reveal` (front and back, flipped on the phone) and `pager` (pages
-  swiped on the phone).
+  `list`, `reveal` (front and back, flipped in wizzle) and `pager` (pages
+  swiped in wizzle).
 - `validateElement` never throws. It drops invalid and unknown nodes, cuts what
   is over the limits (`ELEMENT_LIMITS`), and reports each change. Without an
   id, a title and content there is no element.
@@ -101,7 +101,7 @@ the app recognizes it by the name and draws it with its own components.
 ## Crypto providers
 
 `Session` takes a `CryptoProvider`. `src/crypto-node.ts` implements it on
-`node:crypto` for bridges. The phone supplies one on `react-native-quick-crypto`
+`node:crypto` for bridges. wizzle supplies one on `react-native-quick-crypto`
 (same API surface) or on `@noble/curves` plus `@noble/ciphers`.
 
 ## Checks

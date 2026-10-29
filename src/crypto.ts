@@ -1,6 +1,6 @@
 export type KeyPair = { publicKey: Uint8Array; privateKey: Uint8Array };
 
-// Every primitive the protocol needs. Node and the phone each supply one.
+// Every primitive the protocol needs. Node and wizzle each supply one.
 export interface CryptoProvider {
   randomBytes(length: number): Uint8Array;
   sha256(data: Uint8Array): Uint8Array;

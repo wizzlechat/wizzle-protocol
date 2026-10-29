@@ -83,7 +83,7 @@ export type SecretInjection =
   | { paramName: string; paramFormat?: string }
   | { pathTemplate: string }
   | { pathRegex: string; pathReplacement: string };
-// A vault key as the phone sees it. Its value never leaves the host.
+// A vault key as wizzle sees it. Its value never leaves the host.
 export type Secret = {
   id: string;
   name: string;
@@ -104,7 +104,7 @@ export type SecretChanges = {
 };
 export type SessionEvent = 'cleared' | 'compacted' | 'reset' | 'error';
 
-// Bridge to phone. 'file' carries its bytes in the packet body.
+// Bridge to wizzle. 'file' carries its bytes in the packet body.
 export type BridgeMessage =
   | { t: 'hello'; protocol: number; runtime: string; runtimeVersion?: string; bridgeVersion: string; host: string; capabilities: Capabilities }
   | { t: 'agents'; agents: Agent[] }
@@ -136,8 +136,8 @@ export type BridgeMessage =
   | { t: 'agent_secrets'; agentId: string; secretIds: string[] }
   | { t: 'error'; ref?: string; code: string; message: string };
 
-// Phone to bridge. 'upload' carries its bytes in the packet body.
-export type PhoneMessage =
+// Wizzle to bridge. 'upload' carries its bytes in the packet body.
+export type WizzleMessage =
   | { t: 'send'; conv: string; msgId: string; text: string; attachments?: string[] }
   | { t: 'upload'; uploadId: string; file: FileMeta }
   | { t: 'answer'; questionId: string; value: string | string[] }
@@ -175,7 +175,7 @@ export type PhoneMessage =
   | { t: 'sync' };
 
 export type Packet<M> = M & { id: string };
-export type AnyMessage = BridgeMessage | PhoneMessage;
+export type AnyMessage = BridgeMessage | WizzleMessage;
 
 export type DecodedPacket = {
   header: Packet<{ t: string }> & Record<string, unknown>;

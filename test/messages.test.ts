@@ -1,11 +1,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { decodePacket, encodePacket } from '../src/messages.ts';
-import type { BridgeMessage, Packet, PhoneMessage } from '../src/messages.ts';
+import type { BridgeMessage, Packet, WizzleMessage } from '../src/messages.ts';
 import { fromHex } from '../src/bytes.ts';
 
 test('packet with a binary body round trips', () => {
-  const upload: Packet<PhoneMessage> = { id: 'u1', t: 'upload', uploadId: 'u1', file: { name: 'a.png', mime: 'image/png', size: 3 } };
+  const upload: Packet<WizzleMessage> = { id: 'u1', t: 'upload', uploadId: 'u1', file: { name: 'a.png', mime: 'image/png', size: 3 } };
   const bytes = encodePacket(upload, fromHex('010203'));
   const decoded = decodePacket(bytes);
   assert.equal(decoded.header.t, 'upload');
@@ -22,16 +22,16 @@ test('packet without a body has an empty body', () => {
 test('packet rejects malformed input', () => {
   assert.throws(() => decodePacket(new Uint8Array(3)), /short/);
   assert.throws(() => decodePacket(fromHex('000000ff7b7d')), /overruns/);
-  assert.throws(() => decodePacket(encodePacket({ id: 'x' } as unknown as Packet<PhoneMessage>)), /missing/);
+  assert.throws(() => decodePacket(encodePacket({ id: 'x' } as unknown as Packet<WizzleMessage>)), /missing/);
 });
 
 test('topic packets round trip', () => {
-  const phone: Array<Packet<PhoneMessage>> = [
+  const wizzle: Array<Packet<WizzleMessage>> = [
     { id: 'c1', t: 'create_conversation', agentId: 'g1', title: 'Roadmap' },
     { id: 'c2', t: 'rename_conversation', conv: 'wizzle:agent:g1:roadmap', title: 'Plans' },
     { id: 'c3', t: 'delete_conversation', conv: 'wizzle:agent:g1:roadmap' },
   ];
-  for (const packet of phone) {
+  for (const packet of wizzle) {
     const decoded = decodePacket(encodePacket(packet));
     assert.deepEqual({ ...decoded.header }, { ...packet });
   }
@@ -51,7 +51,7 @@ test('topic packets round trip', () => {
 });
 
 test('agent lifecycle packets and the paused status round trip', () => {
-  const phone: Array<Packet<PhoneMessage>> = [
+  const wizzle: Array<Packet<WizzleMessage>> = [
     { id: 'l1', t: 'pause_agent', agentId: 'g1' },
     { id: 'l2', t: 'resume_agent', agentId: 'g1' },
     { id: 'l3', t: 'restart_agent', agentId: 'g1' },
@@ -59,7 +59,7 @@ test('agent lifecycle packets and the paused status round trip', () => {
     { id: 'l5', t: 'delete_agent', agentId: 'g1', removeWorkspace: true },
     { id: 'l6', t: 'delete_agent', agentId: 'g1', removeWorkspace: false },
   ];
-  for (const packet of phone) {
+  for (const packet of wizzle) {
     const decoded = decodePacket(encodePacket(packet));
     assert.deepEqual({ ...decoded.header }, { ...packet });
   }
@@ -75,7 +75,7 @@ test('agent lifecycle packets and the paused status round trip', () => {
 });
 
 test('create_agent and templates packets round trip', () => {
-  const create: Packet<PhoneMessage> = {
+  const create: Packet<WizzleMessage> = {
     id: 'a1',
     t: 'create_agent',
     name: 'Scout',
@@ -87,7 +87,7 @@ test('create_agent and templates packets round trip', () => {
   };
   assert.deepEqual({ ...decodePacket(encodePacket(create)).header }, { ...create });
 
-  const ask: Packet<PhoneMessage> = { id: 'a2', t: 'templates' };
+  const ask: Packet<WizzleMessage> = { id: 'a2', t: 'templates' };
   assert.deepEqual({ ...decodePacket(encodePacket(ask)).header }, { ...ask });
 
   const list: Packet<BridgeMessage> = {
@@ -102,7 +102,7 @@ test('create_agent and templates packets round trip', () => {
 });
 
 test('key packets and library templates round trip', () => {
-  const packets: Array<Packet<PhoneMessage> | Packet<BridgeMessage>> = [
+  const packets: Array<Packet<WizzleMessage> | Packet<BridgeMessage>> = [
     { id: 'k1', t: 'secrets' },
     {
       id: 'k2',

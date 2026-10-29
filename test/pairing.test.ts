@@ -49,13 +49,13 @@ test('relay secret and psk differ and are stable', () => {
 
 test('the paired relay secret matches on both sides and needs a static private key', () => {
   const pairingId = nodeCrypto.randomBytes(16);
-  const phone = nodeCrypto.x25519KeyPair();
+  const wizzle = nodeCrypto.x25519KeyPair();
   const bridge = nodeCrypto.x25519KeyPair();
-  const fromPhone = derivePairedRelaySecret(nodeCrypto, pairingId, phone.privateKey, bridge.publicKey);
-  const fromBridge = derivePairedRelaySecret(nodeCrypto, pairingId, bridge.privateKey, phone.publicKey);
-  assert.ok(equal(fromPhone, fromBridge));
+  const fromWizzle = derivePairedRelaySecret(nodeCrypto, pairingId, wizzle.privateKey, bridge.publicKey);
+  const fromBridge = derivePairedRelaySecret(nodeCrypto, pairingId, bridge.privateKey, wizzle.publicKey);
+  assert.ok(equal(fromWizzle, fromBridge));
   const other = nodeCrypto.x25519KeyPair();
-  assert.ok(!equal(fromPhone, derivePairedRelaySecret(nodeCrypto, pairingId, other.privateKey, bridge.publicKey)));
-  assert.ok(!equal(fromPhone, derivePairedRelaySecret(nodeCrypto, nodeCrypto.randomBytes(16), phone.privateKey, bridge.publicKey)));
-  assert.throws(() => derivePairedRelaySecret(nodeCrypto, pairingId, phone.privateKey, new Uint8Array(32)), /low order|derivation/);
+  assert.ok(!equal(fromWizzle, derivePairedRelaySecret(nodeCrypto, pairingId, other.privateKey, bridge.publicKey)));
+  assert.ok(!equal(fromWizzle, derivePairedRelaySecret(nodeCrypto, nodeCrypto.randomBytes(16), wizzle.privateKey, bridge.publicKey)));
+  assert.throws(() => derivePairedRelaySecret(nodeCrypto, pairingId, wizzle.privateKey, new Uint8Array(32)), /low order|derivation/);
 });

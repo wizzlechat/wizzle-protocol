@@ -29,7 +29,7 @@ export type UiPager = { type: 'pager'; pages: UiNode[] };
 export type UiNode = UiText | UiImage | UiStack | UiList | UiReveal | UiPager;
 export type UiNodeType = UiNode['type'];
 
-// `id` is unique per agent: the same id again replaces the element on the phone.
+// `id` is unique per agent: the same id again replaces the element in wizzle.
 export type UiElement = { wizzle: number; id: string; kind: string; title: string; content: UiNode };
 export type UiIssue = { path: string; message: string };
 export type UiElementResult = { element: UiElement | null; issues: UiIssue[] };

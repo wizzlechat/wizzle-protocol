@@ -10,7 +10,7 @@ const INFO_B2P = utf8('wizzle-v2 b2p');
 const MAX_EPOCHS = 2;
 const MAX_SEQ = 1n << 62n;
 
-// psk from the invite, this side's static key, and the peer's static key (null on a bridge until a phone pairs).
+// psk from the invite, this side's static key, and the peer's static key (null on a bridge until wizzle pairs).
 export type SessionKeys = { psk: Uint8Array; own: KeyPair; peer: Uint8Array | null };
 
 type Epoch = {
@@ -52,7 +52,7 @@ export class Session {
   private lastRecv: { id: Uint8Array; seq: bigint } | null = null;
 
   constructor(crypto: CryptoProvider, role: Role, pairingId: Uint8Array, keys: SessionKeys, state?: SessionState) {
-    if (role === 'phone' && !keys.peer) throw new Error('the phone needs the bridge key');
+    if (role === 'wizzle' && !keys.peer) throw new Error('wizzle needs the bridge key');
     this.crypto = crypto;
     this.role = role;
     this.pairingId = pairingId;
@@ -70,14 +70,14 @@ export class Session {
     return this.sendEpoch ? this.sendEpoch.id : null;
   }
 
-  // The bridge key on a phone; on a bridge, the phone key pinned by the first confirmed handshake.
+  // The bridge key in wizzle; on a bridge, the wizzle key pinned by the first confirmed handshake.
   get peerKey(): Uint8Array | null {
     return this.peer;
   }
 
-  // Phone side. Returns the HS frame to send through the relay: ephemeral key then static key.
+  // Wizzle side. Returns the HS frame to send through the relay: ephemeral key then static key.
   beginHandshake(): Uint8Array {
-    if (this.role !== 'phone') throw new Error('only the phone starts a handshake');
+    if (this.role !== 'wizzle') throw new Error('only wizzle starts a handshake');
     this.pending = this.crypto.x25519KeyPair();
     return encodeFrame({ type: FRAME_HS, epoch: ZERO_EPOCH, seq: 0n, payload: concat(this.pending.publicKey, this.own.publicKey) });
   }
@@ -87,12 +87,12 @@ export class Session {
     if (frame.type !== FRAME_HS) throw new Error('bad handshake frame');
     if (this.role === 'bridge') {
       if (frame.payload.length !== 2 * X25519_BYTES) throw new Error('bad handshake frame');
-      const phoneEph = frame.payload.slice(0, X25519_BYTES);
-      const phoneStatic = frame.payload.slice(X25519_BYTES);
-      if (this.peer && !equal(this.peer, phoneStatic)) throw new Error('unknown phone key');
+      const wizzleEph = frame.payload.slice(0, X25519_BYTES);
+      const wizzleStatic = frame.payload.slice(X25519_BYTES);
+      if (this.peer && !equal(this.peer, wizzleStatic)) throw new Error('unknown wizzle key');
       const mine = this.crypto.x25519KeyPair();
-      const ikm = concat(dh(this.crypto, mine.privateKey, phoneEph), dh(this.crypto, mine.privateKey, phoneStatic), dh(this.crypto, this.own.privateKey, phoneEph));
-      this.derive(ikm, this.own.publicKey, phoneStatic, phoneEph, mine.publicKey);
+      const ikm = concat(dh(this.crypto, mine.privateKey, wizzleEph), dh(this.crypto, mine.privateKey, wizzleStatic), dh(this.crypto, this.own.privateKey, wizzleEph));
+      this.derive(ikm, this.own.publicKey, wizzleStatic, wizzleEph, mine.publicKey);
       return encodeFrame({ type: FRAME_HS, epoch: ZERO_EPOCH, seq: 0n, payload: mine.publicKey });
     }
     if (frame.payload.length !== X25519_BYTES) throw new Error('bad handshake frame');
@@ -171,19 +171,19 @@ export class Session {
     this.sendEpoch = state.send ? (this.epochs.find((e) => toB64Url(e.id) === state.send) ?? null) : null;
   }
 
-  private derive(ikm: Uint8Array, bridgeStatic: Uint8Array, phoneStatic: Uint8Array, phoneEph: Uint8Array, bridgeEph: Uint8Array): Epoch | null {
-    const transcript = concat(LABEL, this.pairingId, bridgeStatic, phoneStatic, phoneEph, bridgeEph);
+  private derive(ikm: Uint8Array, bridgeStatic: Uint8Array, wizzleStatic: Uint8Array, wizzleEph: Uint8Array, bridgeEph: Uint8Array): Epoch | null {
+    const transcript = concat(LABEL, this.pairingId, bridgeStatic, wizzleStatic, wizzleEph, bridgeEph);
     const id = this.crypto.sha256(transcript).subarray(0, EPOCH_BYTES);
     if (this.epochs.some((e) => equal(e.id, id))) return null;
     const p2b = this.crypto.hkdfSha256(ikm, this.psk, concat(INFO_P2B, transcript), 32);
     const b2p = this.crypto.hkdfSha256(ikm, this.psk, concat(INFO_B2P, transcript), 32);
     const epoch: Epoch = {
       id,
-      sendKey: this.role === 'phone' ? p2b : b2p,
-      recvKey: this.role === 'phone' ? b2p : p2b,
+      sendKey: this.role === 'wizzle' ? p2b : b2p,
+      recvKey: this.role === 'wizzle' ? b2p : p2b,
       sendSeq: 0n,
       recvSeq: 0n,
-      peer: this.role === 'bridge' ? phoneStatic : null,
+      peer: this.role === 'bridge' ? wizzleStatic : null,
     };
     this.epochs.push(epoch);
     while (this.epochs.length > MAX_EPOCHS) {
@@ -200,7 +200,7 @@ export class Session {
     if (this.epochs.indexOf(epoch) > current) this.sendEpoch = epoch;
   }
 
-  // The first phone to confirm owns the pairing; epochs other phones derived before that are dropped.
+  // The first wizzle app to confirm owns the pairing; epochs other wizzle apps derived before that are dropped.
   private pin(epoch: Epoch): void {
     this.peer = epoch.peer;
     this.dropForeign(epoch);

@@ -48,7 +48,7 @@ export function frameHeader(bytes: Uint8Array): Uint8Array {
 }
 
 // Text messages between a client and the relay. Never forwarded to the peer.
-export type Role = 'phone' | 'bridge';
+export type Role = 'wizzle' | 'bridge';
 export type PushPlatform = 'ios' | 'android';
 
 export type ClientControl =
