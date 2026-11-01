@@ -29,10 +29,25 @@ const REPORT: UiElement = {
   content: {
     type: 'stack',
     children: [
-      { type: 'text', role: 'caption', text: 'Weather' },
+      { type: 'text', role: 'heading', text: 'Weather' },
       { type: 'text', text: 'Sunny, 18 degrees.' },
       { type: 'image', url: 'https://example.com/sun.png', alt: 'A sun' },
     ],
+  },
+};
+
+const ARTICLE: UiElement = {
+  wizzle: 1,
+  id: 'post-relay-rust',
+  kind: 'Blog draft',
+  title: 'Why the relay is Rust',
+  content: {
+    type: 'article',
+    title: 'Why the relay is Rust',
+    subtitle: 'A blind relay has one job, so the language had to get out of the way.',
+    byline: 'Draft 2, October 31',
+    cover: { type: 'image', url: 'https://example.com/relay.png', alt: 'A rack of servers' },
+    body: '## The problem\n\nThe relay forwards **ciphertext** and reads a 17 byte header.\n\n- No sessions\n- No parsing',
   },
 };
 
@@ -40,8 +55,8 @@ function element(content: unknown, extra: Record<string, unknown> = {}): unknown
   return { wizzle: 1, id: 'e1', kind: 'Test', title: 'Test', content, ...extra };
 }
 
-test('the sample deck and report pass unchanged', () => {
-  for (const sample of [DECK, REPORT]) {
+test('the sample deck, report and article pass unchanged', () => {
+  for (const sample of [DECK, REPORT, ARTICLE]) {
     const result = validateElement(structuredClone(sample));
     assert.deepEqual(result.issues, []);
     assert.deepEqual(result.element, sample);
@@ -95,6 +110,16 @@ test('unknown nodes and nodes missing a required field are dropped, the rest sta
   ]);
 });
 
+test('an article needs a body, drops a cover that is not an image, and cuts a long body', () => {
+  const result = validateElement(element({ type: 'article', cover: { type: 'text', text: 'not a picture' }, body: 'Hello' }));
+  assert.deepEqual(result.element?.content, { type: 'article', body: 'Hello' });
+  assert.deepEqual(result.issues.map((i) => i.path), ['content.cover']);
+  assert.equal(validateElement(element({ type: 'article', title: 'No body' })).element, null);
+  const long = validateElement(element({ type: 'article', body: 'b'.repeat(ELEMENT_LIMITS.body + 5) }));
+  assert.ok(long.element?.content.type === 'article');
+  assert.equal(long.element.content.body.length, ELEMENT_LIMITS.body);
+});
+
 test('long text is cut without splitting a surrogate pair, and long lists are cut', () => {
   const text = `${'a'.repeat(ELEMENT_LIMITS.text - 1)}😀tail`;
   const pages = Array.from({ length: ELEMENT_LIMITS.pages + 3 }, (_, i) => ({ type: 'text', text: String(i) }));
@@ -135,10 +160,13 @@ function prng(seed: number): () => number {
 // Mostly valid values per field, with a few wrong ones, so whole trees survive and get checked again.
 const POOL: Record<string, readonly unknown[]> = {
   text: ['hi', 'tener', '', 7, null, '😀😀'],
-  role: ['title', 'body', 'caption', 'loud', null],
+  role: ['title', 'heading', 'body', 'caption', 'loud', null],
   url: ['https://example.com/i.png', 'http://example.com/i.png', ''],
   alt: ['a key', '', null],
   ordered: [true, false, 'yes'],
+  body: ['## Hi\n\nSome **bold** text.', '', null],
+  subtitle: ['Under the title', 7],
+  byline: ['Draft 1', null],
   extra: [1, 'x'],
 };
 
@@ -155,6 +183,7 @@ function randomNode(next: () => number, depth: number): unknown {
   if (type === 'list') node['items'] = list();
   if (type === 'pager') node['pages'] = list();
   if (type === 'reveal') for (const key of ['front', 'back']) if (next() < 0.9) node[key] = randomNode(next, depth + 1);
+  if (type === 'article' && next() < 0.7) node['cover'] = randomNode(next, depth + 1);
   return node;
 }
 
@@ -183,6 +212,7 @@ test('every node type survives somewhere in the random run', () => {
     if (node.type === 'list') node.items.forEach(walk);
     if (node.type === 'pager') node.pages.forEach(walk);
     if (node.type === 'reveal') [node.front, node.back].forEach(walk);
+    if (node.type === 'article' && node.cover) walk(node.cover);
   };
   for (let i = 0; i < 3000; i++) {
     const result = validateElement(element(randomNode(next, 0)));

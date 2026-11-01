@@ -13,20 +13,25 @@ export const ELEMENT_LIMITS = {
   alt: 300,
   url: 2048,
   issues: 50,
+  body: 40000,
+  subtitle: 300,
+  byline: 120,
 } as const;
 
 export const ELEMENT_ID_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
 const URL_PATTERN = /^https:\/\/[^\s/?#]\S*$/;
 const DEFAULT_KIND = 'Other';
 
-export type UiTextRole = 'title' | 'body' | 'caption';
+export type UiTextRole = 'title' | 'heading' | 'body' | 'caption';
 export type UiText = { type: 'text'; text: string; role?: UiTextRole };
 export type UiImage = { type: 'image'; url: string; alt: string };
 export type UiStack = { type: 'stack'; children: UiNode[] };
 export type UiList = { type: 'list'; items: UiNode[]; ordered?: boolean };
 export type UiReveal = { type: 'reveal'; front: UiNode; back: UiNode };
 export type UiPager = { type: 'pager'; pages: UiNode[] };
-export type UiNode = UiText | UiImage | UiStack | UiList | UiReveal | UiPager;
+// `body` is markdown, the one text an element renders formatted; the cover is an image node.
+export type UiArticle = { type: 'article'; title?: string; subtitle?: string; byline?: string; cover?: UiImage; body: string };
+export type UiNode = UiText | UiImage | UiStack | UiList | UiReveal | UiPager | UiArticle;
 export type UiNodeType = UiNode['type'];
 
 // `id` is unique per agent: the same id again replaces the element in wizzle.
@@ -38,14 +43,14 @@ type FieldSpec =
   | { kind: 'string'; required: boolean; max: number; cut: boolean; pattern?: RegExp }
   | { kind: 'enum'; values: readonly string[] }
   | { kind: 'boolean' }
-  | { kind: 'node' }
+  | { kind: 'node'; optional?: boolean; only?: UiNodeType }
   | { kind: 'nodes'; max: number };
 
 // Every field of a node type has exactly one spec, so the types and the checks cannot drift apart.
 type Fields<N extends UiNode> = { [F in Exclude<keyof N, 'type'>]-?: FieldSpec };
 type Spec = { [T in UiNodeType]: Fields<Extract<UiNode, { type: T }>> };
 
-const ROLES: readonly UiTextRole[] = ['title', 'body', 'caption'];
+const ROLES: readonly UiTextRole[] = ['title', 'heading', 'body', 'caption'];
 
 const SPEC: Spec = {
   text: {
@@ -60,6 +65,13 @@ const SPEC: Spec = {
   list: { items: { kind: 'nodes', max: ELEMENT_LIMITS.children }, ordered: { kind: 'boolean' } },
   reveal: { front: { kind: 'node' }, back: { kind: 'node' } },
   pager: { pages: { kind: 'nodes', max: ELEMENT_LIMITS.pages } },
+  article: {
+    title: { kind: 'string', required: false, max: ELEMENT_LIMITS.title, cut: true },
+    subtitle: { kind: 'string', required: false, max: ELEMENT_LIMITS.subtitle, cut: true },
+    byline: { kind: 'string', required: false, max: ELEMENT_LIMITS.byline, cut: true },
+    cover: { kind: 'node', optional: true, only: 'image' },
+    body: { kind: 'string', required: true, max: ELEMENT_LIMITS.body, cut: true },
+  },
 };
 
 export const UI_NODE_TYPES = Object.keys(SPEC) as UiNodeType[];
@@ -122,6 +134,7 @@ function field(spec: FieldSpec, raw: unknown, path: string, depth: number, cx: C
       if (typeof raw === 'boolean') return raw;
       return void issue(cx, path, 'ignored, expected true or false');
     case 'node':
+      if (spec.only && isRecord(raw) && raw['type'] !== spec.only) return void issue(cx, path, `ignored, expected a ${quote(spec.only)} node`);
       return node(raw, path, depth + 1, cx) ?? undefined;
     case 'nodes': {
       if (!Array.isArray(raw)) return void issue(cx, path, 'must be an array of nodes');
@@ -137,7 +150,7 @@ function field(spec: FieldSpec, raw: unknown, path: string, depth: number, cx: C
 }
 
 function required(spec: FieldSpec): boolean {
-  return spec.kind === 'node' || spec.kind === 'nodes' || (spec.kind === 'string' && spec.required);
+  return (spec.kind === 'node' && !spec.optional) || spec.kind === 'nodes' || (spec.kind === 'string' && spec.required);
 }
 
 function node(value: unknown, path: string, depth: number, cx: Context): UiNode | null {

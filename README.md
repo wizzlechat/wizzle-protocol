@@ -85,9 +85,11 @@ the app recognizes it by the name and draws it with its own components.
 - Envelope: `{ "wizzle": 1, "id", "kind", "title", "content" }`. `id` is unique
   per agent, and the same id again replaces the element; `kind` is free text
   that groups elements in the app.
-- Nodes: `text` (`role` title, body or caption), `image` (https), `stack`,
-  `list`, `reveal` (front and back, flipped in wizzle) and `pager` (pages
-  swiped in wizzle).
+- Nodes: `text` (`role` title, heading, body or caption), `image` (https), `stack`,
+  `list`, `reveal` (front and back, flipped in wizzle), `pager` (pages
+  swiped in wizzle) and `article` (a long read: optional `title`, `subtitle`,
+  `byline` and image `cover`, then `body`, the one field the app renders as
+  markdown, up to 40000 characters).
 - `validateElement` never throws. It drops invalid and unknown nodes, cuts what
   is over the limits (`ELEMENT_LIMITS`), and reports each change. Without an
   id, a title and content there is no element.
