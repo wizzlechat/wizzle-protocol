@@ -1,6 +1,6 @@
 import type { CryptoProvider, KeyPair } from './crypto.ts';
-import { NONCE_BYTES, X25519_BYTES, dh } from './crypto.ts';
-import { concat, equal, fromB64Url, toB64Url, utf8, writeU64 } from './bytes.ts';
+import { NONCE_BYTES, TAG_BYTES, X25519_BYTES, dh } from './crypto.ts';
+import { concat, equal, fromB64Url, toB64Url, utf8 } from './bytes.ts';
 import type { Frame, Role } from './envelope.ts';
 import { EPOCH_BYTES, FRAME_ACK, FRAME_DATA, FRAME_HS, ZERO_EPOCH, encodeFrame, frameHeader } from './envelope.ts';
 
@@ -9,6 +9,8 @@ const INFO_P2B = utf8('wizzle-v2 p2b');
 const INFO_B2P = utf8('wizzle-v2 b2p');
 const MAX_EPOCHS = 2;
 const MAX_SEQ = 1n << 62n;
+// Added to each send counter that saved state brings back, so a rolled back counter still passes the peer's.
+const SEQ_JUMP = 1n << 32n;
 
 // psk from the invite, this side's static key, and the peer's static key (null on a bridge until wizzle pairs).
 export type SessionKeys = { psk: Uint8Array; own: KeyPair; peer: Uint8Array | null };
@@ -31,12 +33,6 @@ export type OpenResult =
   | { kind: 'duplicate' }
   | { kind: 'unknownEpoch' }
   | { kind: 'badTag' };
-
-function nonceFor(seq: bigint): Uint8Array {
-  const nonce = new Uint8Array(NONCE_BYTES);
-  nonce.set(writeU64(seq), NONCE_BYTES - 8);
-  return nonce;
-}
 
 // One pairing's end to end state: handshakes, epochs, and frame sealing.
 export class Session {
@@ -117,8 +113,10 @@ export class Session {
     const epoch = this.epochs.find((e) => equal(e.id, frame.epoch));
     if (!epoch) return { kind: 'unknownEpoch' };
     if (frame.seq <= epoch.recvSeq) return { kind: 'duplicate' };
+    if (frame.payload.length < NONCE_BYTES + TAG_BYTES) return { kind: 'badTag' };
     const aad = frameHeader(encodeFrame({ ...frame, payload: new Uint8Array(0) }));
-    const plaintext = this.crypto.aeadOpen(epoch.recvKey, nonceFor(frame.seq), aad, frame.payload);
+    const nonce = frame.payload.subarray(0, NONCE_BYTES);
+    const plaintext = this.crypto.aeadOpen(epoch.recvKey, nonce, aad, frame.payload.subarray(NONCE_BYTES));
     if (plaintext === null) return { kind: 'badTag' };
     epoch.recvSeq = frame.seq;
     this.lastRecv = { id: epoch.id, seq: frame.seq };
@@ -159,7 +157,7 @@ export class Session {
       id: fromB64Url(e.id),
       sendKey: fromB64Url(e.sendKey),
       recvKey: fromB64Url(e.recvKey),
-      sendSeq: BigInt(e.sendSeq),
+      sendSeq: BigInt(e.sendSeq) + SEQ_JUMP,
       recvSeq: BigInt(e.recvSeq),
       peer: e.peer ? fromB64Url(e.peer) : null,
     }));
@@ -217,7 +215,9 @@ export class Session {
     epoch.sendSeq += 1n;
     const seq = epoch.sendSeq;
     const aad = frameHeader(encodeFrame({ type: FRAME_DATA, epoch: epoch.id, seq, payload: new Uint8Array(0) }));
-    const payload = this.crypto.aeadSeal(epoch.sendKey, nonceFor(seq), aad, plaintext);
+    // Random, so state restored from an older copy never repeats a nonce under this key.
+    const nonce = this.crypto.randomBytes(NONCE_BYTES);
+    const payload = concat(nonce, this.crypto.aeadSeal(epoch.sendKey, nonce, aad, plaintext));
     return encodeFrame({ type: FRAME_DATA, epoch: epoch.id, seq, payload });
   }
 }

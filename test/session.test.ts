@@ -81,7 +81,7 @@ test('wrong psk fails at confirm, never at data', () => {
   assert.equal(bridge.open(decodeFrame(confirm)).kind, 'badTag');
 });
 
-test('state survives export and import with counters intact', () => {
+test('state survives export and import, with the send counter moved ahead', () => {
   const { wizzle, bridge } = pair();
   handshake(wizzle, bridge);
   bridge.open(decodeFrame(wizzle.seal(utf8('one'))));
@@ -89,7 +89,29 @@ test('state survives export and import with counters intact', () => {
   assert.ok(restored.ready);
   const result = bridge.open(decodeFrame(restored.seal(utf8('two'))));
   assert.equal(result.kind, 'data');
-  assert.equal(decodeFrame(restored.seal(utf8('three'))).seq, 4n);
+  assert.equal(decodeFrame(restored.seal(utf8('three'))).seq, (1n << 32n) + 4n);
+});
+
+test('state restored from an older copy never repeats a nonce and still gets through', () => {
+  const { wizzle, bridge } = pair();
+  handshake(wizzle, bridge);
+  const old = JSON.parse(JSON.stringify(wizzle.exportState())) as SessionState;
+  const sent = decodeFrame(wizzle.seal(utf8('sent before the rollback')));
+  assert.equal(bridge.open(sent).kind, 'data');
+  const rolledBack = wizzleSession(wizzleKeys, bridgeKeys.publicKey, psk, old);
+  const again = decodeFrame(rolledBack.seal(utf8('sent after the rollback')));
+  assert.ok(again.seq > sent.seq);
+  assert.ok(!equal(again.payload.subarray(0, 12), sent.payload.subarray(0, 12)));
+  const opened = bridge.open(again);
+  assert.equal(opened.kind, 'data');
+  assert.equal(new TextDecoder().decode((opened as { plaintext: Uint8Array }).plaintext), 'sent after the rollback');
+});
+
+test('a payload too short to hold a nonce and a tag is refused', () => {
+  const { wizzle, bridge } = pair();
+  handshake(wizzle, bridge);
+  const frame = decodeFrame(wizzle.seal(utf8('x')));
+  assert.equal(bridge.open({ ...frame, payload: frame.payload.subarray(0, 27) }).kind, 'badTag');
 });
 
 test('rehandshake keeps the previous epoch readable and drops the one before', () => {

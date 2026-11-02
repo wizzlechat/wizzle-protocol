@@ -65,16 +65,20 @@ wizzle then sends an empty DATA frame (confirm) under the new epoch. The
 bridge replies with its own confirm. Each side switches to sending under the
 newest epoch once it has opened one valid frame from the peer under it.
 
-Frames are ChaCha20-Poly1305 with nonce = 4 zero bytes || seq, and the 17 byte
-frame header as associated data. Seq starts at 1 per epoch per direction and
-must strictly increase; the receiver drops anything at or below the last seq
-it accepted.
+Frames are ChaCha20-Poly1305. The payload is a random 12 byte nonce, then the
+ciphertext and its tag; the 17 byte frame header is the associated data. Seq
+starts at 1 per epoch per direction and must strictly increase; the receiver
+drops anything at or below the last seq it accepted. Loading saved state moves
+every send seq 2^32 ahead, so a side restored from an older copy of its state
+still sends above what the peer accepted, and since the nonce is random, that
+copy never repeats a nonce under the same key.
 
 Each side keeps the current and the previous epoch. Frames the relay buffered
 while one side was offline were sealed under the epoch both sides held at the
 time, so they still open after a reconnect. A new handshake runs whenever both
 sides are online, which is the forward secrecy boundary. Session state
-(`exportState`) must be persisted by both sides, keys in secure storage.
+(`exportState`) must be persisted by both sides, flushed to disk before the
+frame it counts is sent, keys in secure storage that stays on the device.
 
 ## Elements
 
