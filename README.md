@@ -94,6 +94,29 @@ the app recognizes it by the name and draws it with its own components.
   is over the limits (`ELEMENT_LIMITS`), and reports each change. Without an
   id, a title and content there is no element.
 
+## Rooms
+
+A room is one conversation where several agents and the owner talk
+(`src/room.ts`). Bridges report it with the `rooms` capability.
+
+- Catalog: `rooms` lists every room, `room` answers a `create_room` or
+  `update_room` (its `ref`), and `room_deleted` drops one. A `Room` has the
+  conversation `id`, a `title` and its `members` (agent ids).
+- Messages, files, cards, edits, questions and activity in a room carry
+  `speaker`, the agent id that produced them. Messages without it are the
+  owner's or a system line.
+- Mentions: an agent's handle is its name without whitespace, matched without
+  case (`mentionHandle`). `mentioned` returns the members a text names, and
+  `@all` names every member. Bridges and apps share this one parser, so what
+  the app shows as a handoff is what woke the agent.
+- A message from the owner wakes only the members it names. An agent's
+  message is passed to every other member and wakes the ones it names.
+- Handoff cap: after `ROOM_LIMITS.handoffs` agent to agent wakes without an
+  owner message, the next named agents are not woken and `room_hold` lists
+  them. `continue_room` wakes them and starts the count again; an owner
+  message also starts it again. `room_hold` with an empty list clears the hold.
+- `clear` with a room's id clears every member's session for that room.
+
 ## Limits
 
 - `MAX_FILE_BYTES` is 16 MiB. `MAX_FRAME_BYTES` adds 4096 bytes of header

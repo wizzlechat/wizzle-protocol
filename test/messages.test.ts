@@ -74,6 +74,38 @@ test('agent lifecycle packets and the paused status round trip', () => {
   }
 });
 
+test('task packets round trip', () => {
+  const asks: Packet<WizzleMessage>[] = [
+    { id: 'a1', t: 'tasks' },
+    { id: 'a2', t: 'run_task', taskId: 'briefing-1a2b' },
+    { id: 'a3', t: 'pause_task', taskId: 'briefing-1a2b' },
+    { id: 'a4', t: 'resume_task', taskId: 'briefing-1a2b' },
+  ];
+  for (const packet of asks) assert.deepEqual({ ...decodePacket(encodePacket(packet)).header }, { ...packet });
+
+  const list: Packet<BridgeMessage> = {
+    id: 'b1',
+    t: 'tasks',
+    ref: 'a3',
+    tasks: [
+      {
+        id: 'briefing-1a2b',
+        agentId: 'ag-1',
+        name: 'briefing-1a2b',
+        schedule: '0 9 * * 1-5',
+        enabled: false,
+        prompt: 'Prepare the weekday briefing and send it to wizzle.',
+        runs: 12,
+        failedRuns: 1,
+        lastRunAt: 1700000000000,
+        nextRunAt: 1700086400000,
+      },
+      { id: 't-abc123', name: 't-abc123', schedule: 'once', enabled: true, nextRunAt: 1700090000000 },
+    ],
+  };
+  assert.deepEqual({ ...decodePacket(encodePacket(list)).header }, { ...list });
+});
+
 test('create_agent and templates packets round trip', () => {
   const create: Packet<WizzleMessage> = {
     id: 'a1',

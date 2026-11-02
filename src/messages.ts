@@ -19,6 +19,8 @@ export type Capabilities = {
   deleteAgent: boolean;
   // The host's credential vault: list, create, update and delete keys, and attach them to agents.
   keys: boolean;
+  // Rooms: one conversation with several agents, handing work to each other with @name.
+  rooms: boolean;
 };
 
 export type AgentStatus = 'idle' | 'running' | 'waiting' | 'offline' | 'error' | 'paused';
@@ -27,9 +29,18 @@ export type Agent = { id: string; name: string; description?: string; status: Ag
 export type Conversation = { id: string; agentId: string; title: string; lastAt?: number; topic?: boolean; createdAt?: number; lastAgentAt?: number };
 export type TextFormat = 'text' | 'markdown';
 export type ChatRole = 'agent' | 'user' | 'system';
-export type ChatMessage = { conv: string; msgId: string; role: ChatRole; text: string; format: TextFormat; at: number };
+// speaker is the agent that said it, set in a room.
+export type ChatMessage = { conv: string; msgId: string; role: ChatRole; text: string; format: TextFormat; at: number; speaker?: string };
 export type ActivityState = 'idle' | 'thinking' | 'tool';
-export type Activity = { conv: string; state: ActivityState; tool?: string; label?: string; startedAt?: number; timeoutMs?: number };
+export type Activity = {
+  conv: string;
+  state: ActivityState;
+  tool?: string;
+  label?: string;
+  startedAt?: number;
+  timeoutMs?: number;
+  speaker?: string;
+};
 export type QuestionOption = { label: string; value: string; style?: 'default' | 'primary' | 'danger' };
 export type Question = {
   conv: string;
@@ -39,6 +50,7 @@ export type Question = {
   options: QuestionOption[];
   multi?: boolean;
   expiresAt?: number;
+  speaker?: string;
 };
 export type ApprovalDecision = 'allow' | 'deny' | 'allow_always';
 export type Approval = {
@@ -51,12 +63,16 @@ export type Approval = {
   expiresAt?: number;
 };
 export type TaskStatus = 'ok' | 'error' | 'skipped';
+// A scheduled task series on the host. `schedule` is its cron expression, or 'once' for a one-time task.
 export type Task = {
   id: string;
   agentId?: string;
   name: string;
   schedule: string;
   enabled: boolean;
+  prompt?: string;
+  runs?: number;
+  failedRuns?: number;
   lastRunAt?: number;
   lastStatus?: TaskStatus;
   nextRunAt?: number;
@@ -103,6 +119,8 @@ export type SecretChanges = {
   value?: string;
 };
 export type SessionEvent = 'cleared' | 'compacted' | 'reset' | 'error';
+// id is the room's conversation id; members are agent ids in the order they joined.
+export type Room = { id: string; title: string; members: string[]; lastAt?: number; createdAt?: number; lastAgentAt?: number };
 
 // Bridge to wizzle. 'file' carries its bytes in the packet body.
 export type BridgeMessage =
@@ -119,11 +137,12 @@ export type BridgeMessage =
   | { t: 'question_resolved'; questionId: string; value?: string | string[]; by?: string }
   | { t: 'approval'; approval: Approval }
   | { t: 'approval_resolved'; approvalId: string; decision: ApprovalDecision; by?: string }
-  | { t: 'card'; conv: string; msgId: string; card: unknown; fallbackText: string; at: number }
-  | { t: 'file'; conv: string; msgId: string; file: FileMeta; caption?: string; at: number }
-  | { t: 'edit'; conv: string; msgId: string; text: string; format?: TextFormat; terminal?: { resolution: string } }
+  | { t: 'card'; conv: string; msgId: string; card: unknown; fallbackText: string; at: number; speaker?: string }
+  | { t: 'file'; conv: string; msgId: string; file: FileMeta; caption?: string; at: number; speaker?: string }
+  | { t: 'edit'; conv: string; msgId: string; text: string; format?: TextFormat; terminal?: { resolution: string }; speaker?: string }
   | { t: 'reaction'; conv: string; msgId: string; emoji: string; op: 'add' | 'remove' }
-  | { t: 'tasks'; tasks: Task[] }
+  // Every task on the host; ref is the tasks, run_task, pause_task or resume_task request it answers.
+  | { t: 'tasks'; ref?: string; tasks: Task[] }
   | { t: 'task_run'; taskId: string; runId: string; status: 'started' | TaskStatus; at: number; summary?: string }
   | { t: 'session'; conv: string; event: SessionEvent; detail?: string }
   | { t: 'history'; conv: string; messages: ChatMessage[]; before?: string; hasMore: boolean }
@@ -134,6 +153,12 @@ export type BridgeMessage =
   | { t: 'secret'; ref?: string; secret: Secret }
   | { t: 'secret_deleted'; secretId: string }
   | { t: 'agent_secrets'; agentId: string; secretIds: string[] }
+  | { t: 'rooms'; rooms: Room[] }
+  // A room created or changed; ref is the create_room or update_room it answers.
+  | { t: 'room'; ref?: string; room: Room }
+  | { t: 'room_deleted'; conv: string }
+  // Agents named past the handoff cap and not woken; an empty list means the room carries on.
+  | { t: 'room_hold'; conv: string; held: string[] }
   | { t: 'error'; ref?: string; code: string; message: string };
 
 // Wizzle to bridge. 'upload' carries its bytes in the packet body.
@@ -147,6 +172,8 @@ export type WizzleMessage =
   | { t: 'history'; conv: string; before?: string; limit?: number }
   | { t: 'tasks' }
   | { t: 'run_task'; taskId: string }
+  | { t: 'pause_task'; taskId: string }
+  | { t: 'resume_task'; taskId: string }
   | {
       t: 'create_agent';
       name: string;
@@ -172,6 +199,12 @@ export type WizzleMessage =
   | { t: 'resume_agent'; agentId: string }
   | { t: 'restart_agent'; agentId: string; message?: string }
   | { t: 'delete_agent'; agentId: string; removeWorkspace: boolean }
+  | { t: 'create_room'; title: string; members: string[] }
+  // Only the fields present change; a member list replaces the old one.
+  | { t: 'update_room'; conv: string; title?: string; members?: string[] }
+  | { t: 'delete_room'; conv: string }
+  // Wakes the agents the handoff cap held back and starts the count again.
+  | { t: 'continue_room'; conv: string }
   | { t: 'sync' };
 
 export type Packet<M> = M & { id: string };

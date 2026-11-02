@@ -5,3 +5,4 @@ export * from './pairing.ts';
 export * from './messages.ts';
 export * from './session.ts';
 export * from './element.ts';
+export * from './room.ts';
