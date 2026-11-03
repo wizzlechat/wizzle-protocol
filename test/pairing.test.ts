@@ -7,7 +7,7 @@ import { equal } from '../src/bytes.ts';
 const bridgeKey = nodeCrypto.x25519KeyPair().publicKey;
 
 test('invite round trips through a wizzle url', () => {
-  const invite = newInvite(nodeCrypto, { relay: 'wss://relay.example.com/v1', bridgeKey, expiresAt: 1_900_000_000, name: 'pi', runtime: 'nanoclaw' });
+  const invite = newInvite(nodeCrypto, { relay: 'wss://relay.example.com/v1', bridgeKey, expiresAt: 1_900_000_000, name: 'home', runtime: 'nanoclaw' });
   const text = encodeInvite(invite);
   assert.ok(text.startsWith('wizzle://pair?'));
   const parsed = parseInvite(text);
@@ -16,7 +16,7 @@ test('invite round trips through a wizzle url', () => {
   assert.deepEqual(parsed.secret, invite.secret);
   assert.deepEqual(parsed.bridgeKey, bridgeKey);
   assert.equal(parsed.expiresAt, 1_900_000_000);
-  assert.equal(parsed.name, 'pi');
+  assert.equal(parsed.name, 'home');
   assert.equal(parsed.runtime, 'nanoclaw');
 });
 
