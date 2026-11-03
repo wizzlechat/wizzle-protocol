@@ -21,6 +21,8 @@ export type Capabilities = {
   keys: boolean;
   // Rooms: one conversation with several agents, handing work to each other with @name.
   rooms: boolean;
+  // The host installs the latest bridge itself when wizzle sends update_bridge.
+  updateBridge: boolean;
 };
 
 export type AgentStatus = 'idle' | 'running' | 'waiting' | 'offline' | 'error' | 'paused';
@@ -159,6 +161,8 @@ export type BridgeMessage =
   | { t: 'room_deleted'; conv: string }
   // Agents named past the handoff cap and not woken; an empty list means the room carries on.
   | { t: 'room_hold'; conv: string; held: string[] }
+  // Answers update_bridge: started, or failed before the host restarted; message says why.
+  | { t: 'bridge_update'; ref?: string; status: 'started' | 'failed'; message?: string }
   | { t: 'error'; ref?: string; code: string; message: string };
 
 // Wizzle to bridge. 'upload' carries its bytes in the packet body.
@@ -205,6 +209,8 @@ export type WizzleMessage =
   | { t: 'delete_room'; conv: string }
   // Wakes the agents the handoff cap held back and starts the count again.
   | { t: 'continue_room'; conv: string }
+  // Installs the latest bridge on the host, which restarts and sends a new hello.
+  | { t: 'update_bridge' }
   | { t: 'sync' };
 
 export type Packet<M> = M & { id: string };

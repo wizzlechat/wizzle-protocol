@@ -121,6 +121,16 @@ A room is one conversation where several agents and the owner talk
   message also starts it again. `room_hold` with an empty list clears the hold.
 - `clear` with a room's id clears every member's session for that room.
 
+## Bridge update
+
+The hello carries `bridgeVersion`, the installed bundle version. The newest
+published one is `dist/<runtime>/latest` on the site, so the app compares the
+two itself. A bridge with the `updateBridge` capability accepts `update_bridge`:
+it starts the install script in the background and answers `bridge_update`
+with status `started`; the host then restarts and sends a new hello. A script
+that stops without restarting the host gets `bridge_update` with status
+`failed` and a `message`, and the same line goes to the System conversation.
+
 ## Limits
 
 - `MAX_FILE_BYTES` is 16 MiB. `MAX_FRAME_BYTES` adds 4096 bytes of header
@@ -139,6 +149,3 @@ A room is one conversation where several agents and the owner talk
 node --test test/*.test.ts
 tsc -p tsconfig.json
 ```
-
-Type checking needs `typescript` and `@types/node` available to `tsc`; nothing
-is installed in this folder.
